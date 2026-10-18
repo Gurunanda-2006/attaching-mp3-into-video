@@ -1,0 +1,49 @@
+"use client";
+import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
+import { Download, Music2, Pause, Play, RotateCcw, Search, Upload, Volume2, X } from "lucide-react";
+
+type Category = "Action & Drama" | "Melody" | "Love";
+type Song = { filename: string; title: string; artist: string | null; album: string | null; duration: number | null; category: Category };
+const fmt = (n: number) => Number.isFinite(n) ? `${String(Math.floor(n / 60)).padStart(2,"0")}:${String(Math.floor(n % 60)).padStart(2,"0")}` : "--:--";
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
+
+export default function Editor() {
+  const [songs, setSongs] = useState<Song[]>([]), [query, setQuery] = useState(""), [category, setCategory] = useState<"All" | Category>("All"), [song, setSong] = useState<Song | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null), [videoUrl, setVideoUrl] = useState(""), [videoDuration, setVideoDuration] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0), [offset, setOffset] = useState(0), [volume, setVolume] = useState(70), [muted, setMuted] = useState(false), [playing, setPlaying] = useState(false), [time, setTime] = useState(0);
+  const [status, setStatus] = useState(""), [resultUrl, setResultUrl] = useState(""), [error, setError] = useState("");
+  const video = useRef<HTMLVideoElement>(null), audio = useRef<HTMLAudioElement>(null), input = useRef<HTMLInputElement>(null);
+  useEffect(() => { fetch("/songs.json").then(r => r.ok ? r.json() : Promise.reject()).then((catalogue: { songs?: Song[] }) => {
+    if (!Array.isArray(catalogue.songs)) throw new Error("Invalid catalogue");
+    setSongs(catalogue.songs);
+  }).catch(() => setError("The song catalogue could not be loaded.")); }, []);
+  useEffect(() => { if (audio.current) audio.current.volume = muted ? 0 : volume / 100; }, [volume, muted]);
+  useEffect(() => () => { if (videoUrl) URL.revokeObjectURL(videoUrl); if (resultUrl) URL.revokeObjectURL(resultUrl); }, [videoUrl, resultUrl]);
+  const syncAudio = (t: number, play = false) => { const a = audio.current; if (!a || !song) return; const target = Math.min(offset + t, Math.max(0, audioDuration - .05)); if (Math.abs(a.currentTime - target) > .25) a.currentTime = target; if (play) a.play().catch(() => setError("Press play again to allow audio playback.")); };
+  const chooseVideo = (file?: File) => { if (!file) return; if (!file.type.startsWith("video/")) return setError("Choose a browser-compatible video file."); if (file.size > 300 * 1024 * 1024) return setError("Videos must be 300 MB or smaller."); setError(""); setResultUrl(""); if (videoUrl) URL.revokeObjectURL(videoUrl); setVideoFile(file); setVideoUrl(URL.createObjectURL(file)); setTime(0); };
+  const selectSong = (s: Song) => { setPlaying(false); audio.current?.pause(); setSong(s); setOffset(0); setAudioDuration(0); setError(""); };
+  const togglePlayback = async () => { if (!video.current || !videoFile || !song) return setError("Upload a video and choose a song first."); if (playing) { video.current.pause(); audio.current?.pause(); setPlaying(false); return; } syncAudio(video.current.currentTime, true); try { await video.current.play(); setPlaying(true); } catch { setError("Your browser prevented playback. Interact with the page and try again."); } };
+  const exportVideo = async () => { if (!videoFile || !song) return; setError(""); setStatus("Uploading media…"); setResultUrl(""); const data = new FormData(); data.append("video", videoFile); data.append("song", song.filename); data.append("offset", String(offset)); data.append("volume", String(muted ? 0 : volume)); try { setStatus("FFmpeg is replacing the soundtrack…"); const processor = process.env.NEXT_PUBLIC_PROCESSOR_URL || "http://localhost:4000"; const res = await fetch(`${processor}/export`, { method: "POST", body: data }); if (!res.ok) throw new Error(await res.text()); const blob = await res.blob(); setResultUrl(URL.createObjectURL(blob)); setStatus("Export complete."); } catch (e) { setStatus(""); setError(e instanceof Error ? e.message : "Export failed."); } };
+  const filtered = songs.filter(s => (category === "All" || s.category === category) && `${s.title} ${s.artist ?? ""} ${s.album ?? ""}`.toLowerCase().includes(query.toLowerCase()));
+  const lastOffset = Math.max(0, audioDuration - videoDuration);
+  return <main>
+    <header><div><span className="mark"><Music2 size={18}/></span><strong>Telugu Cut</strong></div><p>Music for product videos</p></header>
+    <section className="editor">
+      <div className="stage card"><div className="sectionTitle"><span>Video preview</span>{videoFile && <button className="text" onClick={() => { video.current?.pause(); setVideoFile(null); setVideoUrl(""); setPlaying(false); }}><X size={15}/> Remove</button>}</div>
+        {videoUrl ? <video ref={video} src={videoUrl} controls onLoadedMetadata={e => setVideoDuration(e.currentTarget.duration)} onTimeUpdate={e => { setTime(e.currentTarget.currentTime); if (playing) syncAudio(e.currentTarget.currentTime); }} onSeeked={e => syncAudio(e.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => { audio.current?.pause(); setPlaying(false); }} /> : <div className="empty" onDragOver={e => e.preventDefault()} onDrop={(e: DragEvent) => { e.preventDefault(); chooseVideo(e.dataTransfer.files[0]); }}><Upload size={28}/><b>Drop a video here</b><span>MP4, WebM or MOV · up to 300 MB</span><button onClick={() => input.current?.click()}>Choose video</button></div>}
+        <input ref={input} type="file" accept="video/*" hidden onChange={(e: ChangeEvent<HTMLInputElement>) => chooseVideo(e.target.files?.[0])}/>
+        {videoFile && <div className="videoMeta"><span>{videoFile.name}</span><span>{(videoFile.size / 1024 / 1024).toFixed(1)} MB · {fmt(videoDuration)}</span></div>}
+      </div>
+      <aside className="library card"><div className="sectionTitle">Telugu music <small>{songs.length} tracks</small></div><label className="search"><Search size={16}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search songs"/></label><div className="categories">{(["All", "Action & Drama", "Melody", "Love"] as const).map(item => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div><div className="songs">{filtered.map(s => <button className={`track ${song?.filename === s.filename ? "selected" : ""}`} key={s.filename} onClick={() => selectSong(s)}><span className="trackIcon"><Music2 size={16}/></span><span><b>{s.title}</b><small>{s.artist || s.album || "Local music library"} · {s.category}</small></span>{song?.filename === s.filename && <span className="chosen">Selected</span>}</button>)}</div></aside>
+    </section>
+    <section className="timeline card"><div className="sectionTitle">Audio timeline <small>{song ? song.title : "Select a song to begin"}</small></div>
+      <div className="transport"><button className="circle" onClick={togglePlayback} aria-label="Play or pause">{playing ? <Pause size={18}/> : <Play size={18}/>}</button><button className="plain" onClick={() => { if (video.current) { video.current.currentTime = 0; syncAudio(0); }}}><RotateCcw size={16}/> Restart</button><span>{fmt(time)} / {fmt(videoDuration)}</span></div>
+      <div className="trackbar"><div className="wave">{Array.from({length: 64}, (_, i) => <i key={i} style={{height: `${20 + ((i * 37) % 70)}%`}}/>)}<div className="played" style={{width: `${videoDuration ? time / videoDuration * 100 : 0}%`}}/></div></div>
+      <div className="offset"><div><b>Song starting point</b><span>{fmt(offset)} in {fmt(audioDuration)}</span></div><input disabled={!song || !audioDuration} type="range" min="0" max={lastOffset || 0} step="0.1" value={Math.min(offset,lastOffset)} onChange={e => { const next = Number(e.target.value); setOffset(next); if (video.current) syncAudio(video.current.currentTime); }}/><output>{fmt(offset)}</output></div>
+      <div className="volume"><Volume2 size={18}/><b>Music volume</b><input type="range" min="0" max="100" value={muted ? 0 : volume} onChange={e => { setMuted(false); setVolume(Number(e.target.value)); }}/><button className="text" onClick={() => setMuted(!muted)}>{muted ? "Unmute" : `${volume}%`}</button></div>
+      {song && <audio ref={audio} src={`/music/${encodeURIComponent(song.filename)}`} preload="metadata" onLoadedMetadata={e => setAudioDuration(e.currentTarget.duration)} onEnded={() => { if (video.current && !video.current.paused) { audio.current!.currentTime = offset; audio.current!.play().catch(() => undefined); }}} />}
+    </section>
+    <section className="export card"><div><b>Ready to export?</b><span>{song && videoFile ? `${song.title} starts at ${fmt(offset)}.` : "Upload a video and select a song."}</span></div><button disabled={!song || !videoFile || !!status} onClick={exportVideo}>{status || <><Download size={17}/> Export video</>}</button></section>
+    {error && <p className="notice error">{error}</p>}{resultUrl && <section className="result card"><b>Your video is ready</b><video src={resultUrl} controls/><a href={resultUrl} download={`ugc-video-${slug(song?.title || "export")}.mp4`}><Download size={17}/> Download MP4</a></section>}
+  </main>;
+}
