@@ -1,12 +1,12 @@
 import cors from "cors";
 import express from "express";
-import ffmpegPath from "ffmpeg-static";
 import multer from "multer";
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 const app = express(), upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 300 * 1024 * 1024 } });
+const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
 const musicBase = process.env.MUSIC_BASE_URL, origin = process.env.CORS_ORIGIN || "http://localhost:3000";
 app.use(cors({ origin })); app.get("/health", (_, res) => res.json({ ok: true }));
 app.get("/", (_, res) => res.json({ service: "Telugu Cut processor", status: "ready", health: "/health", export: "POST /export" }));

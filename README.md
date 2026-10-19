@@ -15,6 +15,7 @@ In two terminals:
 ```powershell
 cd backend
 npm install
+# Install FFmpeg locally, or set FFMPEG_PATH to its executable.
 npm run dev
 ```
 
@@ -35,8 +36,8 @@ Set it for Production, Preview, and Development as appropriate. Redeploy the fro
 
 ### Render — project root directory: `backend`
 
-- Build command: `npm install`
-- Start command: `npm start`
+- Environment: **Docker** (Render detects `backend/Dockerfile`)
+- Docker build/start commands: leave blank; the Dockerfile defines them.
 - `MUSIC_BASE_URL=https://YOUR-VERCEL-PROJECT.vercel.app/music`
 - `CORS_ORIGIN=https://YOUR-VERCEL-PROJECT.vercel.app`
 
